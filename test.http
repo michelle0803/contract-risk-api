@@ -1,0 +1,12 @@
+### Health check
+GET http://localhost:3000/health
+
+### Analyze a contract
+POST http://localhost:3000/api/analyze
+Content-Type: application/json
+
+{
+  "contractId": "00000000-0000-0000-0000-000000000001",
+  "contractType": "NDA",
+  "contractText": "This Non-Disclosure Agreement is entered into between Acme Corp and the Receiving Party. The receiving party agrees to keep all disclosed information confidential indefinitely. Any breach shall result in unlimited monetary damages. The disclosing party reserves the right to terminate this agreement at any time without notice or compensation. All intellectual property created during the relationship belongs exclusively to Acme Corp."
+}
