@@ -27,15 +27,19 @@ jobs:
 
       # Step 3 — Install dependencies
       - name: Install dependencies
-        run: npm ci
+        run: npm ci 
 
       # Step 4 — Run tests (placeholder for now)
       - name: Run tests
         run: npm test
 
+        # Step 5 — Install dependencies
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
       # Step 5 — Package the app for deployment
       - name: Create deployment package
-        run: zip -r release.zip . --exclude '*.git*' --exclude 'node_modules/*'
+        run: zip -r release.zip . --exclude '*.git*'
 
       # Step 6 — Upload the package as an artifact
       - name: Upload artifact
