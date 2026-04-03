@@ -1,6 +1,11 @@
 # Contract Risk Reviewer API
 
-> AI-powered contract risk analysis backend — Node.js · Claude API · Microsoft Dataverse · Azure
+**AI-powered contract risk analysis backend — Node.js · Claude API · Microsoft Dataverse · Azure**
+
+[![Deploy to Azure](https://github.com/michelle0803/contract-risk-api/actions/workflows/deploy.yml/badge.svg)](https://github.com/michelle0803/contract-risk-api/actions/workflows/deploy.yml)
+
+**Live API:** `https://contract-risk-api-ebdqecg5h3hqdhe8.westus3-01.azurewebsites.net`  
+**Health check:** `https://contract-risk-api-ebdqecg5h3hqdhe8.westus3-01.azurewebsites.net/health`
 
 ---
 
@@ -26,37 +31,7 @@ The goal is not to replace human judgment — it is to make sure human judgment 
 
 ---
 
-## Technical Decisions & Why I Made Them
-
-**Why Node.js + Express over Python or Azure Functions**
-
-Express gives you a lightweight, predictable REST API with minimal boilerplate. For a project where the primary logic lives in two external API calls — Claude and Dataverse — a thin Express layer is the right tool. Python would have worked equally well, but Node.js keeps the entire stack in one language ecosystem and integrates naturally with the Power Platform CLI tooling used elsewhere in this project.
-
-Azure Functions were considered and ruled out for the portfolio version because they add deployment complexity without meaningful benefit at this scale. The architecture is designed so that swapping Express for Azure Functions later is a straightforward migration if the client requires serverless.
-
-**Why Anthropic Claude over OpenAI**
-
-Claude's instruction-following on structured JSON output is exceptionally reliable. Contract analysis requires the model to return a consistent schema every time — a misformatted response that breaks `JSON.parse()` in a production workflow is a real problem, not a theoretical one. Claude's tendency to follow explicit formatting instructions precisely made it the right choice for this use case.
-
-The prompt is engineered to return only a JSON object with no markdown, no preamble, and no explanation — just the data structure the application needs.
-
-**Why Dataverse over SharePoint or SQL**
-
-This project is built for the Power Platform ecosystem. Dataverse gives you native integration with Model-Driven Apps, row-level security, relationship management between tables, and Power Automate connectors that work without custom configuration. A SharePoint list would have been simpler to set up but would have required workarounds for the relational data model — contracts with many risk flags and a full audit history.
-
-Dataverse was the right choice for enterprise-grade data architecture within the Microsoft stack.
-
-**Why client credentials OAuth over delegated auth**
-
-The API runs as a background service — there is no user present to authenticate when Power Automate triggers the call. Client credentials flow (service principal authentication via Azure AD) is the correct pattern for server-to-server communication. It also means the API's permissions are explicit and auditable, not tied to any individual user's account or subject to breaking when someone leaves the organization.
-
-**Why sequential flag writes over parallel**
-
-The `createRiskFlag` calls in the route handler run sequentially in a `for` loop rather than in parallel with `Promise.all()`. This is intentional. Dataverse has API throttling limits, and a contract with 8-10 flags sent in parallel can trigger rate limiting errors. Sequential writes are slightly slower but reliable. For a production system handling high volume this would be revisited with proper retry logic and batching.
-
----
-
-## Architecture
+## System Architecture
 
 ```
 User submits contract in Model-Driven App
@@ -64,6 +39,7 @@ User submits contract in Model-Driven App
      Dataverse record created
               ↓
   Power Automate flow triggers
+  (on Status → "Under Review")
               ↓
     POST /api/analyze
     { contractId, contractText, contractType }
@@ -71,7 +47,7 @@ User submits contract in Model-Driven App
     ┌──────────────────────────┐
     │   claudeService.js       │
     │   Anthropic Claude API   │
-    │   → risk score 1-10      │
+    │   → risk score 1–10      │
     │   → plain English summary│
     │   → flagged clauses[]    │
     └──────────────────────────┘
@@ -99,18 +75,18 @@ User submits contract in Model-Driven App
 
 | Layer | Technology |
 |---|---|
-| Runtime | Node.js 18+ |
-| Framework | Express 4 |
+| Runtime | Node.js 24 LTS |
+| Framework | Express 5 |
 | AI Analysis | Anthropic Claude API (`claude-sonnet-4-20250514`) |
 | Data Platform | Microsoft Dataverse REST API (OData v4) |
 | Auth | Azure AD client credentials OAuth 2.0 |
-| Hosting | Azure Web App |
+| Hosting | Azure Web App (B1, West US 3) |
 | CI/CD | GitHub Actions |
-| Dev tooling | nodemon, dotenv |
+| Dev tooling | nodemon, dotenv, axios, cors, helmet, morgan |
 
 ---
 
-## Endpoints
+## API Endpoints
 
 ### `POST /api/analyze`
 
@@ -136,81 +112,52 @@ Triggers AI analysis of a contract and writes structured results back to Dataver
 ```
 
 **Error responses:**
-- `400` — missing `contractId` or `contractText`, or text too short
+- `400` — missing `contractId` or `contractText`, or text too short to analyze
 - `500` — Claude API failure or Dataverse write failure (details in `detail` field)
 
 ---
 
 ### `GET /health`
 
-Returns server status. Used by Azure to verify the app is running and by Power Automate to test connectivity.
+Returns server status. Used by Azure to verify the app is running.
 
-**Response:**
 ```json
 {
   "status": "ok",
   "version": "1.0.0",
-  "timestamp": "2026-03-10T12:00:00.000Z"
+  "timestamp": "2026-04-01T12:00:00.000Z"
 }
 ```
 
 ---
 
-## Local Setup
+## Technical Decisions
 
-### Prerequisites
+### Why Node.js + Express over Python or Azure Functions
 
-- Node.js 18 or higher
-- An Anthropic API account with credits — console.anthropic.com
-- An Azure account with a registered App Registration
-- A Dataverse environment with the Contracts, Risk Flags, and Review History tables created
+Express gives you a lightweight, predictable REST API with minimal boilerplate. For a project where the primary logic lives in two external API calls — Claude and Dataverse — a thin Express layer is the right tool. Python would have worked equally well, but Node.js keeps the entire stack in one language ecosystem and integrates naturally with the Power Platform CLI tooling used elsewhere in this project.
 
-### Steps
+Azure Functions were considered and ruled out for the portfolio version because they add deployment complexity without meaningful benefit at this scale. The architecture is designed so that swapping Express for Azure Functions later is a straightforward migration if the client requires serverless.
 
-**1. Clone the repository**
-```bash
-git clone https://github.com/michelle0803/contract-risk-api.git
-cd contract-risk-api
-```
+### Why Anthropic Claude over OpenAI
 
-**2. Install dependencies**
-```bash
-npm install
-```
+Claude's instruction-following on structured JSON output is exceptionally reliable. Contract analysis requires the model to return a consistent schema every time — a misformatted response that breaks `JSON.parse()` in a production workflow is a real problem, not a theoretical one. Claude's tendency to follow explicit formatting instructions precisely made it the right choice for this use case.
 
-**3. Configure environment variables**
-```bash
-cp .env.example .env
-```
-Open `.env` and fill in all six values. See Environment Variables section below.
+The prompt is engineered to return only a JSON object with no markdown, no preamble, and no explanation — just the data structure the application needs.
 
-**4. Start the development server**
-```bash
-npm run dev
-```
+### Why Dataverse over SharePoint or SQL
 
-**5. Verify it's running**
+This project is built for the Power Platform ecosystem. Dataverse gives you native integration with Model-Driven Apps, row-level security, relationship management between tables, and Power Automate connectors that work without custom configuration. A SharePoint list would have been simpler to set up but would have required workarounds for the relational data model — contracts with many risk flags and a full audit history.
 
-Open a browser and go to `http://localhost:3000/health` — you should see the status response.
+Dataverse was the right choice for enterprise-grade data architecture within the Microsoft stack.
 
-**6. Test the analyze endpoint**
+### Why client credentials OAuth over delegated auth
 
-Using the VS Code REST Client extension, open `test.http` and click Send Request on the analyze block. You should receive a `riskScore`, `riskSummary`, and `flagCount` in the response.
+The API runs as a background service — there is no user present to authenticate when Power Automate triggers the call. Client credentials flow (service principal authentication via Azure AD) is the correct pattern for server-to-server communication. It also means the API's permissions are explicit and auditable, not tied to any individual user's account or subject to breaking when someone leaves the organization.
 
----
+### Why sequential flag writes over parallel
 
-## Environment Variables
-
-Copy `.env.example` to `.env` and fill in your values. Never commit `.env` to version control.
-
-| Variable | Description | Where to find it |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic API key | console.anthropic.com → API Keys |
-| `AZURE_CLIENT_ID` | Azure App Registration client ID | Azure Portal → App Registrations → your app → Overview |
-| `AZURE_CLIENT_SECRET` | Azure App Registration secret | Azure Portal → App Registrations → your app → Certificates & secrets |
-| `AZURE_TENANT_ID` | Azure AD tenant ID | Azure Portal → App Registrations → your app → Overview |
-| `DATAVERSE_URL` | Your Dataverse environment URL | make.powerapps.com → Settings → Session details |
-| `PORT` | Port for the local server | Default: 3000 |
+The `createRiskFlag` calls run sequentially in a for loop rather than in parallel with `Promise.all()`. This is intentional. Dataverse has API throttling limits, and a contract with 8–10 flags sent in parallel can trigger rate limiting errors. Sequential writes are slightly slower but reliable. For a production system handling high volume this would be revisited with proper retry logic and batching.
 
 ---
 
@@ -233,8 +180,67 @@ contract-risk-api/
 ├── .gitignore
 ├── package.json
 ├── test.http                   # VS Code REST Client test requests
+├── test-claude.js              # Standalone Claude API connectivity test
 └── README.md
 ```
+
+---
+
+## Local Setup
+
+### Prerequisites
+
+- Node.js 18 or higher
+- An Anthropic API account with credits — [console.anthropic.com](https://console.anthropic.com)
+- An Azure account with a registered App Registration
+- A Dataverse environment with the Contracts, Risk Flags, and Review History tables created
+
+### Steps
+
+**1. Clone the repository**
+```bash
+git clone https://github.com/michelle0803/contract-risk-api.git
+cd contract-risk-api
+```
+
+**2. Install dependencies**
+```bash
+npm install
+```
+
+**3. Configure environment variables**
+```bash
+cp .env.example .env
+```
+Open `.env` and fill in all six values. See the Environment Variables section below.
+
+**4. Start the development server**
+```bash
+npm run dev
+```
+
+**5. Verify it's running**
+
+Open a browser and go to `http://localhost:3000/health` — you should see the status response.
+
+**6. Test the analyze endpoint**
+
+Using the VS Code REST Client extension, open `test.http` and click **Send Request** on the analyze block. You should receive a `riskScore`, `riskSummary`, and `flagCount` in the response.
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and fill in your values. Never commit `.env` to version control.
+
+| Variable | Description | Where to find it |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Anthropic API key | console.anthropic.com → API Keys |
+| `AZURE_CLIENT_ID` | Azure App Registration client ID | Azure Portal → App Registrations → your app → Overview |
+| `AZURE_CLIENT_SECRET` | Azure App Registration secret value | Azure Portal → App Registrations → Certificates & secrets |
+| `AZURE_TENANT_ID` | Azure AD tenant ID | Azure Portal → App Registrations → your app → Overview |
+| `DATAVERSE_URL` | Your Dataverse environment URL | make.powerapps.com → Settings → Session details |
+| `PORT` | Port for the local server | Default: `3000`. Azure requires `8080`. |
 
 ---
 
@@ -242,7 +248,7 @@ contract-risk-api/
 
 Pushing to the `main` branch automatically triggers the GitHub Actions pipeline which:
 
-1. Runs a dependency install and basic health check
+1. Installs production dependencies
 2. Packages the application
 3. Deploys to Azure Web App using the publish profile stored as a GitHub Secret
 
@@ -263,16 +269,19 @@ This API is one component of the **Contract Risk Reviewer** — a full portfolio
 
 The complete system includes:
 
-- **This API** — Node.js backend with Claude AI analysis and Dataverse writes
-- **Model-Driven App** — Contracts management UI with risk flag subgrids and review history timeline built on Dataverse
-- **Power Automate Flow** — Event-driven trigger that calls this API automatically when a contract status changes to Under Review
-- **GitHub Actions Pipeline** — CI/CD deployment to Azure on every push to main
+| Component | Description |
+|---|---|
+| **This API** | Node.js backend — Claude AI analysis, Dataverse writes, audit logging |
+| **Model-Driven App** | Contracts management UI with risk flag subgrids and review history timeline |
+| **Power Automate Flow** | Event-driven trigger that calls this API when a contract status changes to Under Review |
+| **GitHub Actions Pipeline** | CI/CD deployment to Azure on every push to main |
+| **Dataverse Schema** | Four related tables — Contracts, Risk Flags, Review History, Clause Library |
 
 ---
 
 ## About CypherCodeAI
 
-This project was built by **Michelle P.** as part of the [CypherCodeAI](https://cyphercodeai.com) portfolio — demonstrating AI-augmented business process automation for enterprise Microsoft environments.
+This project was built by **Michelle Pruitt** as part of the [CypherCodeAI](https://cyphercodeai.com) portfolio — demonstrating AI-augmented business process automation for enterprise Microsoft environments.
 
 CypherCodeAI specializes in Power Platform development, AI integration, and cybersecurity solutions for organizations looking to modernize their workflows with intelligent automation.
 
